@@ -29,6 +29,7 @@ type httpKVAPI struct {
 	confChangeC chan<- raftpb.ConfChange
 }
 
+// HTTPKVAPI 的 main routine
 func (h *httpKVAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	key := r.RequestURI
 	defer r.Body.Close()
@@ -41,17 +42,22 @@ func (h *httpKVAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// 写操作调用 KV Store 的 Propose
 		h.store.Propose(key, string(v))
 
 		// Optimistic-- no waiting for ack from raft. Value is not yet
 		// committed so a subsequent GET on the key may return old value
 		w.WriteHeader(http.StatusNoContent)
+
 	case http.MethodGet:
+		// 读操作调用 KV Store 的 Lookup
 		if v, ok := h.store.Lookup(key); ok {
 			w.Write([]byte(v))
 		} else {
 			http.Error(w, "Failed to GET", http.StatusNotFound)
 		}
+
+	// 用于增加 Raft member
 	case http.MethodPost:
 		url, err := ioutil.ReadAll(r.Body)
 		if err != nil {
@@ -75,6 +81,8 @@ func (h *httpKVAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.confChangeC <- cc
 		// As above, optimistic that raft will apply the conf change
 		w.WriteHeader(http.StatusNoContent)
+
+	// 用于摘掉 Raft member
 	case http.MethodDelete:
 		nodeId, err := strconv.ParseUint(key[1:], 0, 64)
 		if err != nil {
@@ -91,6 +99,7 @@ func (h *httpKVAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		// As above, optimistic that raft will apply the conf change
 		w.WriteHeader(http.StatusNoContent)
+
 	default:
 		w.Header().Set("Allow", http.MethodPut)
 		w.Header().Add("Allow", http.MethodGet)
@@ -101,7 +110,11 @@ func (h *httpKVAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // serveHttpKVAPI starts a key-value server with a GET/PUT API and listens.
-func serveHttpKVAPI(kv *kvstore, port int, confChangeC chan<- raftpb.ConfChange, errorC <-chan error) {
+func serveHttpKVAPI(kv *kvstore,
+	port int,
+	confChangeC chan<- raftpb.ConfChange,
+	errorC <-chan error) {
+
 	srv := http.Server{
 		Addr: ":" + strconv.Itoa(port),
 		Handler: &httpKVAPI{
@@ -109,6 +122,7 @@ func serveHttpKVAPI(kv *kvstore, port int, confChangeC chan<- raftpb.ConfChange,
 			confChangeC: confChangeC,
 		},
 	}
+
 	go func() {
 		if err := srv.ListenAndServe(); err != nil {
 			log.Fatal(err)

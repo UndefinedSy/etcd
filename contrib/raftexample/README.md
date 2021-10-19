@@ -17,15 +17,17 @@ go build -o raftexample
 ```
 
 ### Running single node raftexample
-
-First start a single-member cluster of raftexample:
-
+首先启动一个 raftexample 的 single-member cluster：
 ```sh
 raftexample --id 1 --cluster http://127.0.0.1:12379 --port 12380
 ```
 
-Each raftexample process maintains a single raft instance and a key-value server.
-The process's list of comma separated peers (--cluster), its raft ID index into the peer list (--id), and http key-value server port (--port) are passed through the command line.
+每个 raftexample 进程维护一个 single raft instance 和一个 kv server。
+
+通过命令行传入一些 raft 相关的配置：
+- `--cluster`：用 “,” 分隔的 raft 进程列表
+- `--id`：raft peer 的 ID
+- `--port`：http kv server 的端口
 
 Next, store a value ("hello") to a key ("my-key"):
 

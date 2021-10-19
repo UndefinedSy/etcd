@@ -84,8 +84,22 @@ var defaultSnapshotCount uint64 = 10000
 // provided the proposal channel. All log entries are replayed over the
 // commit channel, followed by a nil message (to indicate the channel is
 // current), then new log entries. To shutdown, close proposeC and read errorC.
-func newRaftNode(id int, peers []string, join bool, getSnapshot func() ([]byte, error), proposeC <-chan string,
-	confChangeC <-chan raftpb.ConfChange) (<-chan *commit, <-chan error, <-chan *snap.Snapshotter) {
+// newRaftNode() 会初始化一个 raft 实例
+// 并返回一个 committed log entry channel 和 error channel。
+// 用于 log updates 的 Proposal 通过提供的 proposal channel 发送
+// 
+// 所有 log entries 都通过 commit channel 重放，
+// 并跟着是一条 nil message（表示该 channel is current），
+// 然后是新的 log entries。
+// 
+// 需要 shutdown raft 实例时，需关闭 proposalC 并读取 errorC。
+func newRaftNode /*PARAM*/(id int,
+				 		   peers []string,
+						   join bool,
+						   getSnapshot func() ([]byte, error),
+						   proposeC <-chan string,
+						   confChangeC <-chan raftpb.ConfChange)
+				 /*RETURN*/(<-chan *commit, <-chan error, <-chan *snap.Snapshotter) {
 
 	commitC := make(chan *commit)
 	errorC := make(chan error)
@@ -111,6 +125,7 @@ func newRaftNode(id int, peers []string, join bool, getSnapshot func() ([]byte, 
 		snapshotterReady: make(chan *snap.Snapshotter, 1),
 		// rest of structure populated after WAL replay
 	}
+
 	go rc.startRaft()
 	return commitC, errorC, rc.snapshotterReady
 }
@@ -200,12 +215,16 @@ func (rc *raftNode) publishEntries(ents []raftpb.Entry) (<-chan struct{}, bool) 
 	return applyDoneC, true
 }
 
+// 尝试 load 最新的 valid snapshot
 func (rc *raftNode) loadSnapshot() *raftpb.Snapshot {
+	// wal dir 下存在有 .wal files
 	if wal.Exist(rc.waldir) {
+		// 找到 wal dir 下的所有 valid snapshot entries
 		walSnaps, err := wal.ValidSnapshotEntries(rc.logger, rc.waldir)
 		if err != nil {
 			log.Fatalf("raftexample: error listing snapshots (%v)", err)
 		}
+		// load 最新的 snapshot
 		snapshot, err := rc.snapshotter.LoadNewestAvailable(walSnaps)
 		if err != nil && err != snap.ErrNoSnapshot {
 			log.Fatalf("raftexample: error loading snapshot (%v)", err)
@@ -246,6 +265,7 @@ func (rc *raftNode) openWAL(snapshot *raftpb.Snapshot) *wal.WAL {
 func (rc *raftNode) replayWAL() *wal.WAL {
 	log.Printf("replaying WAL of member %d", rc.id)
 	snapshot := rc.loadSnapshot()
+	
 	w := rc.openWAL(snapshot)
 	_, st, ents, err := w.ReadAll()
 	if err != nil {
@@ -271,14 +291,17 @@ func (rc *raftNode) writeError(err error) {
 	rc.node.Stop()
 }
 
+// Raft instance 的 main routine
 func (rc *raftNode) startRaft() {
 	if !fileutil.Exist(rc.snapdir) {
 		if err := os.Mkdir(rc.snapdir, 0750); err != nil {
 			log.Fatalf("raftexample: cannot create dir for snapshot (%v)", err)
 		}
 	}
+	// snapshotter 看起来是个 logger?
 	rc.snapshotter = snap.New(zap.NewExample(), rc.snapdir)
 
+	// 判断 wal dir 下是否有 .wal 文件
 	oldwal := wal.Exist(rc.waldir)
 	rc.wal = rc.replayWAL()
 
