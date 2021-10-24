@@ -124,59 +124,55 @@ func (rd Ready) appliedCursor() uint64 {
 
 // Node represents a node in a raft cluster.
 type Node interface {
-	// Tick increments the internal logical clock for the Node by a single tick. Election
-	// timeouts and heartbeat timeouts are in units of ticks.
+	// Tick() 会递增该 Node 的 internal logical clock 一个 tick
+	// Election timeouts 和 heartbeat timeout 都是以 ticks 作为单位
 	Tick()
-	// Campaign causes the Node to transition to candidate state and start campaigning to become leader.
+
+	// Campaign() 使得 raft node 过渡到 candidate 状态，并开始竞选成为 leader。
 	Campaign(ctx context.Context) error
-	// Propose proposes that data be appended to the log. Note that proposals can be lost without
-	// notice, therefore it is user's job to ensure proposal retries.
+
+	// Propose() 提议将传入的 data 给 append 到日志中。
+	// 需要注意的是，proposals 可能会在没有显式的通知情况下丢失，因此，用户需要确保 proposal 的重试。
 	Propose(ctx context.Context, data []byte) error
-	// ProposeConfChange proposes a configuration change. Like any proposal, the
-	// configuration change may be dropped with or without an error being
-	// returned. In particular, configuration changes are dropped unless the
-	// leader has certainty that there is no prior unapplied configuration
-	// change in its log.
+
+	// ProposeConfChange() 用于提议一个配置变更。
+	// 像任何 proposal 一样，配置变更也可能在没有返回 error 的情况下被丢弃。
+	// 除非 leader 确定在其日志中没有先前的 unapplied 的配置变更，否则本次配置变更将被丢弃。
 	//
-	// The method accepts either a pb.ConfChange (deprecated) or pb.ConfChangeV2
-	// message. The latter allows arbitrary configuration changes via joint
-	// consensus, notably including replacing a voter. Passing a ConfChangeV2
-	// message is only allowed if all Nodes participating in the cluster run a
-	// version of this library aware of the V2 API. See pb.ConfChangeV2 for
-	// usage details and semantics.
+	// ProposeConfChange() 接受可以接受 pb.ConfChange（已废弃）或 pb.ConfChangeV2 message。
+	// 后者允许通过 joint consensus 进行任意的配置变更，特别是包括替换一个 voter。
+	// 只有当一个集群的所有 raft node 都运行的是支持 V2 API 的版本时，才允许使用 ConfChangeV2 message。
+	// 使用细节和语义见 pb.ConfChangeV2。
 	ProposeConfChange(ctx context.Context, cc pb.ConfChangeI) error
 
-	// Step advances the state machine using the given message. ctx.Err() will be returned, if any.
+	// Step() 使用传入的 message 推动 state machine。如果有错误的话将返回 ctx.Err()。
 	Step(ctx context.Context, msg pb.Message) error
 
-	// Ready returns a channel that returns the current point-in-time state.
-	// Users of the Node must call Advance after retrieving the state returned by Ready.
+	// Ready 返回一个 channel，该 channel 会返回当前时间点的状态
+	// Raft node 的 user 必须在检索完 Ready() 返回的状态后调用 Advance()
 	//
-	// NOTE: No committed entries from the next Ready may be applied until all committed entries
-	// and snapshots from the previous one have finished.
+	// 注意：在前一个 Ready() 的所有 committed entries 和 snapshots 完成之前，
+	// 来自下一次 Ready() 的 committed entries 都不能被 applied。
 	Ready() <-chan Ready
 
-	// Advance notifies the Node that the application has saved progress up to the last Ready.
-	// It prepares the node to return the next available Ready.
+	// Advance() 用于通知 Raft node，application 已经保存了到 last Ready 的进度。
+	// 该调用使 Raft node 准备好返回下一个 available Ready。
 	//
-	// The application should generally call Advance after it applies the entries in last Ready.
+	// 应用程序一般应该在 apply 了最后一个 Ready 中的 entries 后调用 Advance()
 	//
-	// However, as an optimization, the application may call Advance while it is applying the
-	// commands. For example. when the last Ready contains a snapshot, the application might take
-	// a long time to apply the snapshot data. To continue receiving Ready without blocking raft
-	// progress, it can call Advance before finishing applying the last ready.
+	// 然而，作为一种优化，应用程序可以在 applying 这些命令同时调用 Advance()。
+	// 例如，当最后一个 Ready 包含了一个快照时，应用程序可能需要很长的时间来 apply snapshot data。
+	// 为了继续接收 Ready 而不需要阻塞 raft 进度，应用可以在完成 apply last Ready 之前就调用 Advance()
 	Advance()
-	// ApplyConfChange applies a config change (previously passed to
-	// ProposeConfChange) to the node. This must be called whenever a config
-	// change is observed in Ready.CommittedEntries, except when the app decides
-	// to reject the configuration change (i.e. treats it as a noop instead), in
-	// which case it must not be called.
+
+	// ApplyConfChange() 用于应用一个配置变更（之前通过 ProposeConfChange() 传递）。
+	// 只要在 Ready.CommittedEntries 中看到了配置变更，就必须调用这个方法，
+	// 除非 application 决定拒绝这个配置变更（即把它当作 noop），这种情况下则不应调用它。
 	//
-	// Returns an opaque non-nil ConfState protobuf which must be recorded in
-	// snapshots.
+	// 该函数返回一个 opaque non-nil 的 ConfState protobuf，这必须记录在快照中。
 	ApplyConfChange(cc pb.ConfChangeI) *pb.ConfState
 
-	// TransferLeadership attempts to transfer leadership to the given transferee.
+	// TransferLeadership() 会尝试将 leadership 转移给指定的 transferee
 	TransferLeadership(ctx context.Context, lead, transferee uint64)
 
 	// ReadIndex request a read state. The read state will be set in the ready.
@@ -185,11 +181,16 @@ type Node interface {
 	// processed safely. The read state will have the same rctx attached.
 	// Note that request can be lost without notice, therefore it is user's job
 	// to ensure read index retries.
+
+	// ReadIndex() 会请求一个 read state。The read state will be set in the ready。
+	// Read state 有一个 read index。一旦应用程序的进度超过了该 read index，
+	// 在读请求之前发出的任何可线性化的读请求都可以被安全处理。读取状态将有相同的rctx附加。注意，请求可能会在没有通知的情况下丢失，因此，确保读取索引重试是用户的工作。
 	ReadIndex(ctx context.Context, rctx []byte) error
 
-	// Status returns the current status of the raft state machine.
+	// Status() 会返回 raft state machine 的当前状态
 	Status() Status
-	// ReportUnreachable reports the given node is not reachable for the last send.
+
+	// ReportUnreachable() 用于上报 id 对应的 raft node 在上次向其 send message 时不可达。
 	ReportUnreachable(id uint64)
 	// ReportSnapshot reports the status of the sent snapshot. The id is the raft ID of the follower
 	// who is meant to receive the snapshot, and the status is SnapshotFinish or SnapshotFailure.
@@ -280,6 +281,8 @@ func newNode(rn *RawNode) node {
 		// make tickc a buffered chan, so raft node can buffer some ticks when the node
 		// is busy processing raft messages. Raft node will resume process buffered
 		// ticks when it becomes idle.
+		// 这里将 tickc 做成一个 buffered channel，以便让 raft node 在忙于处理 raft messages 时
+		// 可以缓存一些 ticks。当 raft node 变得空闲时会恢复处理 buffered ticks
 		tickc:  make(chan struct{}, 128),
 		done:   make(chan struct{}),
 		stop:   make(chan struct{}),
@@ -322,6 +325,12 @@ func (n *node) run() {
 			// handled first, but it's generally good to emit larger Readys plus
 			// it simplifies testing (by emitting less frequently and more
 			// predictably).
+			// 填充一个 Ready。
+			// 需要注意的是，这个 Ready 并不保证能被实际处理。
+			// 我们会填装 readyc，但不保证我们会实际向 readyc 发送数据。
+			// 可能会通过另一个 channel 提供服务，循环往复，然后再次 populate Ready。
+			// 我们可以强制要求前一个 Ready 先被处理，
+			// 但一般来说，emit larger Readys 会更好，而且这可以简化测试（使得 emitting 的频率更低、更可预测）。
 			rd = n.rn.readyWithoutAccept()
 			readyc = n.readyc
 		}
@@ -407,10 +416,11 @@ func (n *node) run() {
 	}
 }
 
-// Tick increments the internal logical clock for this Node. Election timeouts
-// and heartbeat timeouts are in units of ticks.
+// Tick() 会递增该 raft node 的内部逻辑时钟。
+// Election timeouts 和 heartbeat timeouts 都使用 ticks 作为单位。
 func (n *node) Tick() {
 	select {
+	// 外部的 raft.node.Tick() 会向 node.tickc 入队一个 tick
 	case n.tickc <- struct{}{}:
 	case <-n.done:
 	default:

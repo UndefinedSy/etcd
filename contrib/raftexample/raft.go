@@ -164,6 +164,8 @@ func (rc *raftNode) entriesToApply(ents []raftpb.Entry) (nents []raftpb.Entry) {
 
 // publishEntries writes committed log entries to commit channel and returns
 // whether all entries could be published.
+// publishEntries() 会将 committed log entries 写入 commit channel
+// 并返回是否所有的 entries 都被 publish
 func (rc *raftNode) publishEntries(ents []raftpb.Entry) (<-chan struct{}, bool) {
 	if len(ents) == 0 {
 		return nil, true
@@ -291,7 +293,9 @@ func (rc *raftNode) writeError(err error) {
 	rc.node.Stop()
 }
 
-// Raft instance 的 main routine
+
+// 启动服务 Raft messages 的 Transport
+// 
 func (rc *raftNode) startRaft() {
 	if !fileutil.Exist(rc.snapdir) {
 		if err := os.Mkdir(rc.snapdir, 0750); err != nil {
@@ -339,6 +343,7 @@ func (rc *raftNode) startRaft() {
 	}
 
 	rc.transport.Start()
+	// 将除了自己之外的 raft node 加入到 transport peer
 	for i := range rc.peers {
 		if i+1 != rc.id {
 			rc.transport.AddPeer(types.ID(i+1), []string{rc.peers[i]})
@@ -422,6 +427,7 @@ func (rc *raftNode) maybeTriggerSnapshot(applyDoneC <-chan struct{}) {
 	rc.snapshotIndex = rc.appliedIndex
 }
 
+// 这里是 Raft service 的 main routine
 func (rc *raftNode) serveChannels() {
 	snap, err := rc.raftStorage.Snapshot()
 	if err != nil {
@@ -442,6 +448,8 @@ func (rc *raftNode) serveChannels() {
 
 		for rc.proposeC != nil && rc.confChangeC != nil {
 			select {
+			// 从 propose channel 接收 proposal，
+			// 并通过 raft.node.Propose 发起共识
 			case prop, ok := <-rc.proposeC:
 				if !ok {
 					rc.proposeC = nil
@@ -450,6 +458,8 @@ func (rc *raftNode) serveChannels() {
 					rc.node.Propose(context.TODO(), []byte(prop))
 				}
 
+			// 从 configChange channel 接受配置变更，
+			// 通过 rc.node.ProposeConfChange() 发起 membership change
 			case cc, ok := <-rc.confChangeC:
 				if !ok {
 					rc.confChangeC = nil
@@ -467,24 +477,32 @@ func (rc *raftNode) serveChannels() {
 	// event loop on raft state machine updates
 	for {
 		select {
+		// 每 0.1s 调用一次 raft.node.Tick() 递增 raft node 内部逻辑时钟
 		case <-ticker.C:
 			rc.node.Tick()
 
 		// store raft entries to wal, then publish over commit channel
+		// user 需要负责的处理 raft state machine update（见 raft note）
 		case rd := <-rc.node.Ready():
+			// 持久化 Entries、HardState 到 wal
 			rc.wal.Save(rd.HardState, rd.Entries)
+			// 如果有 Snapshot，持久化并应用 Snapshot
 			if !raft.IsEmptySnap(rd.Snapshot) {
 				rc.saveSnap(rd.Snapshot)
 				rc.raftStorage.ApplySnapshot(rd.Snapshot)
 				rc.publishSnapshot(rd.Snapshot)
 			}
+			// Append new entries
 			rc.raftStorage.Append(rd.Entries)
+			// 通过 transport 发送消息
 			rc.transport.Send(rd.Messages)
+			// 
 			applyDoneC, ok := rc.publishEntries(rc.entriesToApply(rd.CommittedEntries))
 			if !ok {
 				rc.stop()
 				return
 			}
+			// 每隔一段 log entries，打一个 snapshot
 			rc.maybeTriggerSnapshot(applyDoneC)
 			rc.node.Advance()
 
@@ -499,7 +517,10 @@ func (rc *raftNode) serveChannels() {
 	}
 }
 
+// 创建一个 url 上的 listener，直到 Serve 返回或收到 stop
+// 该 listened socket 上的 handler 为 rc.transport.Handler()
 func (rc *raftNode) serveRaft() {
+	// ？？？ 自己的 host 吗？
 	url, err := url.Parse(rc.peers[rc.id-1])
 	if err != nil {
 		log.Fatalf("raftexample: Failed parsing URL (%v)", err)
