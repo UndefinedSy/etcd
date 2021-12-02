@@ -547,8 +547,8 @@ func (w *WAL) ReadAll() (metadata []byte, state raftpb.HardState, ents []raftpb.
 	return metadata, state, ents, err
 }
 
-// ValidSnapshotEntries returns all the valid snapshot entries in the wal logs in the given directory.
-// Snapshot entries are valid if their index is less than or equal to the most recent committed hardstate.
+// ValidSnapshotEntries 返回给定目录下 wal 日志中的所有 valid snapshot entries
+// 如果 snapshot entries 的 index 小于等于 最近的 committed hardstate，则认为它是 valid
 func ValidSnapshotEntries(lg *zap.Logger, walDir string) ([]walpb.Snapshot, error) {
 	var snaps []walpb.Snapshot
 	var state raftpb.HardState

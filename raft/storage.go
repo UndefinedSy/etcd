@@ -73,6 +73,7 @@ type Storage interface {
 
 // MemoryStorage implements the Storage interface backed by an
 // in-memory array.
+// MemoryStorage 实现了一个以内存阵列为后端存储的存储接口
 type MemoryStorage struct {
 	// Protects access to all fields. Most methods of MemoryStorage are
 	// run on the raft goroutine, but Append() is run on an application

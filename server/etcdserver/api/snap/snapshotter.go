@@ -109,11 +109,12 @@ func (s *Snapshotter) Load() (*raftpb.Snapshot, error) {
 	return s.loadMatching(func(*raftpb.Snapshot) bool { return true })
 }
 
-// LoadNewestAvailable loads the newest snapshot available that is in walSnaps.
+// LoadNewestAvailable 会 load 传入的 walSnaps 中 available 的最新的 snapshot
 func (s *Snapshotter) LoadNewestAvailable(walSnaps []walpb.Snapshot) (*raftpb.Snapshot, error) {
 	return s.loadMatching(func(snapshot *raftpb.Snapshot) bool {
 		m := snapshot.Metadata
 		for i := len(walSnaps) - 1; i >= 0; i-- {
+			// m 和 walSnaps 啥关系???
 			if m.Term == walSnaps[i].Term && m.Index == walSnaps[i].Index {
 				return true
 			}
@@ -122,7 +123,7 @@ func (s *Snapshotter) LoadNewestAvailable(walSnaps []walpb.Snapshot) (*raftpb.Sn
 	})
 }
 
-// loadMatching returns the newest snapshot where matchFn returns true.
+// loadMatching 会返回 matchFn 返回为 true 的快照中最新的 snapshot
 func (s *Snapshotter) loadMatching(matchFn func(*raftpb.Snapshot) bool) (*raftpb.Snapshot, error) {
 	names, err := s.snapNames()
 	if err != nil {

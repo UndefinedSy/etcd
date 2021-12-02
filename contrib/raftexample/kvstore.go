@@ -38,14 +38,24 @@ type kv struct {
 	Val string
 }
 
-func newKVStore(snapshotter *snap.Snapshotter, proposeC chan<- string, commitC <-chan *commit, errorC <-chan error) *kvstore {
-	s := &kvstore{proposeC: proposeC, kvStore: make(map[string]string), snapshotter: snapshotter}
+func newKVStore(snapshotter *snap.Snapshotter,
+				proposeC chan<- string,
+				commitC <-chan *commit,
+				errorC <-chan error)
+				/*RETURN*/ *kvstore {
+
+	s := &kvstore{
+		proposeC: proposeC,
+		kvStore: make(map[string]string),
+		snapshotter: snapshotter
+	}
 	snapshot, err := s.loadSnapshot()
 	if err != nil {
 		log.Panic(err)
 	}
 	if snapshot != nil {
-		log.Printf("loading snapshot at term %d and index %d", snapshot.Metadata.Term, snapshot.Metadata.Index)
+		log.Printf("loading snapshot at term %d and index %d",
+				   snapshot.Metadata.Term, snapshot.Metadata.Index)
 		if err := s.recoverFromSnapshot(snapshot.Data); err != nil {
 			log.Panic(err)
 		}
@@ -62,6 +72,8 @@ func (s *kvstore) Lookup(key string) (string, bool) {
 	return v, ok
 }
 
+// 将 kv 序列化并传入 propose channel,
+// channel 的消费端为 raft.serveChannels()
 func (s *kvstore) Propose(k string, v string) {
 	var buf bytes.Buffer
 	if err := gob.NewEncoder(&buf).Encode(kv{k, v}); err != nil {
@@ -70,6 +82,7 @@ func (s *kvstore) Propose(k string, v string) {
 	s.proposeC <- buf.String()
 }
 
+// KVStore 的 main routine
 func (s *kvstore) readCommits(commitC <-chan *commit, errorC <-chan error) {
 	for commit := range commitC {
 		if commit == nil {

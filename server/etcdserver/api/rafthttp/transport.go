@@ -54,6 +54,9 @@ type Transporter interface {
 	// to an existing peer in the transport.
 	// If the id cannot be found in the transport, the message
 	// will be ignored.
+	// Send() 会将传入的 messages 发送给 peers
+	// 每条 Message 都有一个 `To` 字段，是一个 id，用于映射 transport 中的 peer
+	// 如果在当前 transport 中无法找到 id 的对应的映射，则消息会被忽略
 	Send(m []raftpb.Message)
 	// SendSnapshot sends out the given snapshot message to a remote peer.
 	// The behavior of SendSnapshot is similar to Send.
@@ -94,6 +97,11 @@ type Transporter interface {
 // received from peerURLs.
 // User needs to call Start before calling other functions, and call
 // Stop when the Transport is no longer used.
+// Transport 实现了 Transporter 接口。
+// Transport 提供了向 raft peers 发送 messages，以及从 raft peers 接受 messages 的功能
+// 用户应该调用 Handler 方法以获取一个 handler，以服务从 peerURLs 处收到的请求
+//
+// 用户需要在调用任何其他方法前先调用 Start()，并在 Transport 不再使用后调用 Stop()
 type Transport struct {
 	Logger *zap.Logger
 
