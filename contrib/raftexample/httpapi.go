@@ -33,6 +33,7 @@ type httpKVAPI struct {
 func (h *httpKVAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	key := r.RequestURI
 	defer r.Body.Close()
+
 	switch r.Method {
 	case http.MethodPut:
 		v, err := ioutil.ReadAll(r.Body)
@@ -42,15 +43,15 @@ func (h *httpKVAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// 写操作调用 KV Store 的 Propose
+		// 写操作调用 KV Store 的 Propose, 需要走 Raft
 		h.store.Propose(key, string(v))
 
-		// Optimistic-- no waiting for ack from raft. Value is not yet
-		// committed so a subsequent GET on the key may return old value
+		// Optimistic-- 这里没有等待 Raft 的 ACK, 而是 Raft Routine 读取了 proposal 后就返回
+		// 此时 Value 还没有 committed, 因此随后的 GET 仍可能返回 old value, 即破坏了 Read-after-write
 		w.WriteHeader(http.StatusNoContent)
 
 	case http.MethodGet:
-		// 读操作调用 KV Store 的 Lookup
+		// 读操作调用 KV Store 的 Lookup, 不需要走 Raft
 		if v, ok := h.store.Lookup(key); ok {
 			w.Write([]byte(v))
 		} else {
@@ -109,7 +110,12 @@ func (h *httpKVAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// serveHttpKVAPI starts a key-value server with a GET/PUT API and listens.
+/**
+ * 启动一个带有 GET/PUT API 的 key-value server
+ * 会 Listen 对应的 port 直到 error channel 返回 error
+ * - Put / Get 对应于 kv 的读写
+ * - Post / Delete 对应于 Raft Membership 的调整
+ */
 func serveHttpKVAPI(kv *kvstore,
 	port int,
 	confChangeC chan<- raftpb.ConfChange,

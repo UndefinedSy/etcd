@@ -41,18 +41,19 @@ type kv struct {
 func newKVStore(snapshotter *snap.Snapshotter,
 				proposeC chan<- string,
 				commitC <-chan *commit,
-				errorC <-chan error)
-				/*RETURN*/ *kvstore {
+				errorC <-chan error) (
+				/*RETURN*/ *kvstore) {
 
 	s := &kvstore{
 		proposeC: proposeC,
 		kvStore: make(map[string]string),
-		snapshotter: snapshotter
+		snapshotter: snapshotter,
 	}
 	snapshot, err := s.loadSnapshot()
 	if err != nil {
 		log.Panic(err)
 	}
+
 	if snapshot != nil {
 		log.Printf("loading snapshot at term %d and index %d",
 				   snapshot.Metadata.Term, snapshot.Metadata.Index)
@@ -60,6 +61,7 @@ func newKVStore(snapshotter *snap.Snapshotter,
 			log.Panic(err)
 		}
 	}
+
 	// read commits from raft into kvStore map until error
 	go s.readCommits(commitC, errorC)
 	return s
@@ -74,15 +76,19 @@ func (s *kvstore) Lookup(key string) (string, bool) {
 
 // 将 kv 序列化并传入 propose channel,
 // channel 的消费端为 raft.serveChannels()
+// Propose() 在 Raft Node 的 serveChannels 取走 buf 后返回
 func (s *kvstore) Propose(k string, v string) {
 	var buf bytes.Buffer
 	if err := gob.NewEncoder(&buf).Encode(kv{k, v}); err != nil {
 		log.Fatal(err)
 	}
+
 	s.proposeC <- buf.String()
 }
 
-// KVStore 的 main routine
+/**
+ * 接收 Raft group 的 committed message 并将 commit kv 更新到内存中
+ */
 func (s *kvstore) readCommits(commitC <-chan *commit, errorC <-chan error) {
 	for commit := range commitC {
 		if commit == nil {
@@ -91,6 +97,7 @@ func (s *kvstore) readCommits(commitC <-chan *commit, errorC <-chan error) {
 			if err != nil {
 				log.Panic(err)
 			}
+
 			if snapshot != nil {
 				log.Printf("loading snapshot at term %d and index %d", snapshot.Metadata.Term, snapshot.Metadata.Index)
 				if err := s.recoverFromSnapshot(snapshot.Data); err != nil {
@@ -112,11 +119,14 @@ func (s *kvstore) readCommits(commitC <-chan *commit, errorC <-chan error) {
 		}
 		close(commit.applyDoneC)
 	}
+
+	// error or explicitly closed
 	if err, ok := <-errorC; ok {
 		log.Fatal(err)
 	}
 }
 
+// 返回当前 kvstore 的 kv 的序列化数据
 func (s *kvstore) getSnapshot() ([]byte, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -134,11 +144,14 @@ func (s *kvstore) loadSnapshot() (*raftpb.Snapshot, error) {
 	return snapshot, nil
 }
 
+// 反序列化传入的 snapshot byte slice, 并更新当前的 kv map
 func (s *kvstore) recoverFromSnapshot(snapshot []byte) error {
 	var store map[string]string
+
 	if err := json.Unmarshal(snapshot, &store); err != nil {
 		return err
 	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.kvStore = store

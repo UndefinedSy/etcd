@@ -40,6 +40,7 @@ import (
 type commit struct {
 	data       []string
 	applyDoneC chan<- struct{}
+	// 当应用 apply 该 commit 的 data 后应 close 该 Channel
 }
 
 // A key-value stream backed by raft
@@ -84,22 +85,31 @@ var defaultSnapshotCount uint64 = 10000
 // provided the proposal channel. All log entries are replayed over the
 // commit channel, followed by a nil message (to indicate the channel is
 // current), then new log entries. To shutdown, close proposeC and read errorC.
-// newRaftNode() 会初始化一个 raft 实例
-// 并返回一个 committed log entry channel 和 error channel。
-// 用于 log updates 的 Proposal 通过提供的 proposal channel 发送
-// 
-// 所有 log entries 都通过 commit channel 重放，
-// 并跟着是一条 nil message（表示该 channel is current），
-// 然后是新的 log entries。
-// 
-// 需要 shutdown raft 实例时，需关闭 proposalC 并读取 errorC。
-func newRaftNode /*PARAM*/(id int,
-				 		   peers []string,
-						   join bool,
-						   getSnapshot func() ([]byte, error),
-						   proposeC <-chan string,
-						   confChangeC <-chan raftpb.ConfChange)
-				 /*RETURN*/(<-chan *commit, <-chan error, <-chan *snap.Snapshotter) {
+
+/**
+ * 初始化创建一个 raft 实例
+ * @param id, raft seesion 中的 ID
+ * @param peers, raft perrs 的 URLs
+ * @param join, 该 raftNode 是否是正在加入一个已有的 cluster
+ * @param getSnapshot,
+ * @param proposeC, 用于 log updates 的 Proposal 会通过 proposal channel 发送
+ * @param confChangeC, 用于发起 Raft Node Membership 的变更
+ *
+ * @return commitC, 所有 log entries 都通过 commit channel 重放
+ *  			    并跟着是一条 nil message (表示该 channel is current)
+ * 					然后是新的 log entries
+ * @return errorC, 传出 raft seesion 中的 error
+ * @return snapshotterReady, signals when snapshotter is ready
+ *
+ * NOTICE, shutdown raft 实例时，需关闭 proposalC 并读取 errorC
+ */
+func newRaftNode /*PARAM*/ (id int,
+	peers []string,
+	join bool,
+	getSnapshot func() ([]byte, error),
+	proposeC <-chan string,
+	confChangeC <-chan raftpb.ConfChange) (
+	/*RETURN*/ <-chan *commit, <-chan error, <-chan *snap.Snapshotter) {
 
 	commitC := make(chan *commit)
 	errorC := make(chan error)
@@ -267,7 +277,7 @@ func (rc *raftNode) openWAL(snapshot *raftpb.Snapshot) *wal.WAL {
 func (rc *raftNode) replayWAL() *wal.WAL {
 	log.Printf("replaying WAL of member %d", rc.id)
 	snapshot := rc.loadSnapshot()
-	
+
 	w := rc.openWAL(snapshot)
 	_, st, ents, err := w.ReadAll()
 	if err != nil {
@@ -293,9 +303,8 @@ func (rc *raftNode) writeError(err error) {
 	rc.node.Stop()
 }
 
-
 // 启动服务 Raft messages 的 Transport
-// 
+//
 func (rc *raftNode) startRaft() {
 	if !fileutil.Exist(rc.snapdir) {
 		if err := os.Mkdir(rc.snapdir, 0750); err != nil {
@@ -427,7 +436,8 @@ func (rc *raftNode) maybeTriggerSnapshot(applyDoneC <-chan struct{}) {
 	rc.snapshotIndex = rc.appliedIndex
 }
 
-// 这里是 Raft service 的 main routine
+// Raft service 与其上的业务逻辑交互的 main routine
+// 负责响应上层发起的 Put 操作以及 Membership Change
 func (rc *raftNode) serveChannels() {
 	snap, err := rc.raftStorage.Snapshot()
 	if err != nil {
@@ -446,12 +456,14 @@ func (rc *raftNode) serveChannels() {
 	go func() {
 		confChangeCount := uint64(0)
 
+		// 这种写法挺有意思的
 		for rc.proposeC != nil && rc.confChangeC != nil {
 			select {
 			// 从 propose channel 接收 proposal，
 			// 并通过 raft.node.Propose 发起共识
 			case prop, ok := <-rc.proposeC:
 				if !ok {
+					// Propose Channel Closed
 					rc.proposeC = nil
 				} else {
 					// blocks until accepted by raft state machine
@@ -462,14 +474,16 @@ func (rc *raftNode) serveChannels() {
 			// 通过 rc.node.ProposeConfChange() 发起 membership change
 			case cc, ok := <-rc.confChangeC:
 				if !ok {
+					// Config Change Channel Closed
 					rc.confChangeC = nil
 				} else {
 					confChangeCount++
-					cc.ID = confChangeCount
+					cc.ID = confChangeCount // 标识 Raft Membership Change 的顺序
 					rc.node.ProposeConfChange(context.TODO(), cc)
 				}
 			}
 		}
+
 		// client closed channel; shutdown raft if not already
 		close(rc.stopc)
 	}()
@@ -496,7 +510,7 @@ func (rc *raftNode) serveChannels() {
 			rc.raftStorage.Append(rd.Entries)
 			// 通过 transport 发送消息
 			rc.transport.Send(rd.Messages)
-			// 
+			//
 			applyDoneC, ok := rc.publishEntries(rc.entriesToApply(rd.CommittedEntries))
 			if !ok {
 				rc.stop()
