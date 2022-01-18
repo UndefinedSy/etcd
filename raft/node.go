@@ -46,13 +46,12 @@ func (a *SoftState) equal(b *SoftState) bool {
 	return a.Lead == b.Lead && a.RaftState == b.RaftState
 }
 
-// Ready encapsulates the entries and messages that are ready to read,
-// be saved to stable storage, committed or sent to other peers.
-// All fields in Ready are read-only.
+// `Ready` 封装了 ready to 读取、保存到稳定存储、提交或发送至其他 peers 的 entries 和 messages
+// `Ready` 中的所有 fields 都是 read-only 的
 type Ready struct {
-	// The current volatile state of a Node.
-	// SoftState will be nil if there is no update.
-	// It is not required to consume or store SoftState.
+	// 一个 Node 当前的 volatile 的 state
+	// 如果没有 update 则 SoftState 为 nil
+	// 不要求消费和存储 SoftState
 	*SoftState
 
 	// The current state of a Node to be saved to stable storage BEFORE
