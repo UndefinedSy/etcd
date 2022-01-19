@@ -36,7 +36,7 @@ var (
 )
 
 // SoftState provides state that is useful for logging and debugging.
-// The state is volatile and does not need to be persisted to the WAL.
+// SoftState 是 volatile 的, 不许要持久化到 WAL.
 type SoftState struct {
 	Lead      uint64 // must use atomic operations to access; keep 64-bit aligned.
 	RaftState StateType
@@ -54,9 +54,9 @@ type Ready struct {
 	// 不要求消费和存储 SoftState
 	*SoftState
 
-	// The current state of a Node to be saved to stable storage BEFORE
-	// Messages are sent.
-	// HardState will be equal to empty state if there is no update.
+	// **BEFORE Messages are sent**
+	// 在 Messages 发出之前需要持久化到存储中的一个节点的当前状态
+	// 如果没有 update, 则 HardState 为 empty state
 	pb.HardState
 
 	// ReadStates can be used for node to serve linearizable read requests locally
