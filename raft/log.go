@@ -22,25 +22,25 @@ import (
 )
 
 type raftLog struct {
-	// storage contains all stable entries since the last snapshot.
+	// `storage` 中包含了所有自上一次 snapshot 之后的已持久化的 entries
 	storage Storage
 
 	// unstable contains all unstable entries and snapshot.
 	// they will be saved into storage.
+	// `unstable` 包含了所有未持久化的 entries 和 snapshot
+	// 这些数据之后会被持久化到存储中
 	unstable unstable
 
-	// committed is the highest log position that is known to be in
-	// stable storage on a quorum of nodes.
+	// `committed` 是已经被持久化到 quorum 个 nodes 终得最高的 log position
 	committed uint64
-	// applied is the highest log position that the application has
-	// been instructed to apply to its state machine.
-	// Invariant: applied <= committed
+
+	// `applied` 是指已通知应用侧将 log 给 apply 到其状态机的最高 log position
+	// 总是成立: applied <= committed
 	applied uint64
 
 	logger Logger
 
-	// maxNextEntsSize is the maximum number aggregate byte size of the messages
-	// returned from calls to nextEnts.
+	// `maxNextEntsSize` 是调用 `nextEnts()` 返回的 messages 的最大数据聚合大小
 	maxNextEntsSize uint64
 }
 

@@ -16,10 +16,9 @@ package raft
 
 import pb "go.etcd.io/etcd/raft/v3/raftpb"
 
-// unstable.entries[i] has raft log position i+unstable.offset.
-// Note that unstable.offset may be less than the highest log
-// position in storage; this means that the next write to storage
-// might need to truncate the log before persisting unstable.entries.
+// unstable.entries[i] 表示的是位置在 i+unstable.offset 位置的 raft log
+// 需要注意的, unstable.offset 可能是一个小于当前持久化存储中最高 log position 的值
+// 这意味着下一次向存储中持久化 unstable.entries 之前应 truncate 这段 log
 type unstable struct {
 	// the incoming unstable snapshot, if any.
 	snapshot *pb.Snapshot

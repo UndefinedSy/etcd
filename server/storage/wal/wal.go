@@ -65,11 +65,11 @@ var (
 	crcTable                        = crc32.MakeTable(crc32.Castagnoli)
 )
 
-// WAL is a logical representation of the stable storage.
-// WAL is either in read mode or append mode but not both.
-// A newly created WAL is in append mode, and ready for appending records.
-// A just opened WAL is in read mode, and ready for reading records.
-// The WAL will be ready for appending after reading out all the previous records.
+// `WAL` 是持久化存储的一个逻辑抽象
+// WAL 或者是 read mode, 或者是 append mode, 但不会同时是两种形态
+// 一个新创建的 WAL 是 append mode
+// 一个被打开的 WAL 是 read mode
+// WAN 在读取完所有的 pervious records 之后会变为 ready for appending
 type WAL struct {
 	lg *zap.Logger
 

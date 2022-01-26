@@ -28,9 +28,8 @@ var ErrStepLocalMsg = errors.New("raft: cannot step raft local message")
 // but there is no peer found in raft.prs for that node.
 var ErrStepPeerNotFound = errors.New("raft: cannot step as peer not found")
 
-// RawNode is a thread-unsafe Node.
-// The methods of this struct correspond to the methods of Node and are described
-// more fully there.
+// RawNode 是一个 thread-unsafe Node
+// RawNode 的方法与 Node 的方法相对应，并在 Node 中有更全面的描述
 type RawNode struct {
 	raft       *raft
 	prevSoftSt *SoftState
@@ -122,14 +121,18 @@ func (rn *RawNode) Step(m pb.Message) error {
 // includes appending and applying entries or a snapshot, updating the HardState,
 // and sending messages. The returned Ready() *must* be handled and subsequently
 // passed back via Advance().
+// Ready() 用于返回应用侧需要 handle 的未完成的工作.
+// 返回的 Ready *必须* 被处理, bing在随后通过调用 Advance() 传回
 func (rn *RawNode) Ready() Ready {
 	rd := rn.readyWithoutAccept()
 	rn.acceptReady(rd)
 	return rd
 }
 
-// readyWithoutAccept returns a Ready. This is a read-only operation, i.e. there
-// is no obligation that the Ready must be handled.
+// readyWithoutAccept returns a Ready. This is a read-only operation,
+// i.e. there is no obligation that the Ready must be handled.
+// readyWithoutAccept() 会返回一个 Ready 对象
+// 该方法是一个 read-only 操作, 即不保证返回的 Ready 一定会被 handled
 func (rn *RawNode) readyWithoutAccept() Ready {
 	return newReady(rn.raft, rn.prevSoftSt, rn.prevHardSt)
 }

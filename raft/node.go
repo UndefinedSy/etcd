@@ -59,32 +59,30 @@ type Ready struct {
 	// 如果没有 update, 则 HardState 为 empty state
 	pb.HardState
 
-	// ReadStates can be used for node to serve linearizable read requests locally
-	// when its applied index is greater than the index in ReadState.
-	// Note that the readState will be returned when raft receives msgReadIndex.
-	// The returned is only valid for the request that requested to read.
+	// ReadStates 在满足下列条件时, 可用于使当前节点在本地提供 linearizable read:
+	// - 当节点的 applied index 大于 ReadState 中的 index 时
+	//
+	// 注意，当 raft 收到 msgReadIndex 时将返回 readState. 返回的内容只对读请求有效.
 	ReadStates []ReadState
 
-	// Entries specifies entries to be saved to stable storage BEFORE
-	// Messages are sent.
+	// **BEFORE Messages are sent**
+	// Entries 是向集群发送 Messages 前应保存到持久化存储的 Entries
 	Entries []pb.Entry
 
-	// Snapshot specifies the snapshot to be saved to stable storage.
+	// Snapshot 表示需要存储到持久化存储的快照
 	Snapshot pb.Snapshot
 
-	// CommittedEntries specifies entries to be committed to a
-	// store/state-machine. These have previously been committed to stable
-	// store.
+	// CommittedEntries 表示要 committed 到 store / state-machine 的 entries
+	// 这些 entries 之前已经被 committed 到持久化存储中
 	CommittedEntries []pb.Entry
 
-	// Messages specifies outbound messages to be sent AFTER Entries are
-	// committed to stable storage.
-	// If it contains a MsgSnap message, the application MUST report back to raft
-	// when the snapshot has been received or has failed by calling ReportSnapshot.
+	// Messages 是 Entries 在 commite 到持久化存储后, 将要发送的 outbound 消息
+	// 如果它包含 MsgSnap 消息, 则应用程序必须在这个快照出现下面两种情况后向 raft 汇报
+	// - 该快照被接收
+	// - 调用 ReportSnapshot 表示失败
 	Messages []pb.Message
 
-	// MustSync indicates whether the HardState and Entries must be synchronously
-	// written to disk or if an asynchronous write is permissible.
+	// MustSync 表示 HardState 和 Entries 是必须 sync 地写盘，还是可以 async 地写入
 	MustSync bool
 }
 
@@ -181,8 +179,9 @@ type Node interface {
 	// Note that request can be lost without notice, therefore it is user's job
 	// to ensure read index retries.
 
-	// ReadIndex() 会请求一个 read state。The read state will be set in the ready。
-	// Read state 有一个 read index。一旦应用程序的进度超过了该 read index，
+	// ReadIndex() 会请求一个 read state. 这个 read state 会被 set 到 ready.
+	// Read state 有一个 read index.
+	// 一旦应用程序的进度超过了该 read index,
 	// 在读请求之前发出的任何可线性化的读请求都可以被安全处理。读取状态将有相同的rctx附加。注意，请求可能会在没有通知的情况下丢失，因此，确保读取索引重试是用户的工作。
 	ReadIndex(ctx context.Context, rctx []byte) error
 
@@ -466,8 +465,8 @@ func (n *node) stepWait(ctx context.Context, m pb.Message) error {
 	return n.stepWithWaitOption(ctx, m, true)
 }
 
-// Step advances the state machine using msgs. The ctx.Err() will be returned,
-// if any.
+// `Step` 使用 msgs 推动状态机的运作
+// 如果出现错误会返回 ctx.Err()
 func (n *node) stepWithWaitOption(ctx context.Context, m pb.Message, wait bool) error {
 	if m.Type != pb.MsgProp {
 		select {
@@ -568,6 +567,7 @@ func (n *node) ReadIndex(ctx context.Context, rctx []byte) error {
 	return n.step(ctx, pb.Message{Type: pb.MsgReadIndex, Entries: []pb.Entry{{Data: rctx}}})
 }
 
+// 具体一个 Ready 对象的创建
 func newReady(r *raft, prevSoftSt *SoftState, prevHardSt pb.HardState) Ready {
 	rd := Ready{
 		Entries:          r.raftLog.unstableEntries(),
